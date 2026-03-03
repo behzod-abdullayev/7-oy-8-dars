@@ -1,12 +1,12 @@
 import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
-import { Bot, botSchema } from "src/schema/bot.schema";
-import { BotService } from "./bot.service";
+import { ProductService } from "./bot.service";
+import { Product, ProductSchema } from "src/schema/product.schema";
 
 @Module({
-    imports: [MongooseModule.forFeature([{name: Bot.name, schema: botSchema}])],
-    providers: [BotService]
+    imports: [MongooseModule.forFeature([{name: Product.name, schema: ProductSchema}])],
+    providers: [ProductService]
 })
 
 
-export class BotModule {}
+export class ProductModule {}

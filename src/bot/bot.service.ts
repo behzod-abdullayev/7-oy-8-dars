@@ -1,338 +1,211 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, OnModuleInit } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
-import { Bot, BotDocument } from "src/schema/bot.schema";
+import { Product, ProductDocument } from "src/schema/product.schema";
 import TelegramBot from "node-telegram-bot-api";
 
-interface UserSession {
-  variant: number;
-  questionIndex: number;
-  correctAnswers: number;
-  timer?: NodeJS.Timeout;
-  messageId?: number;
-}
-
 @Injectable()
-export class BotService {
+export class ProductService implements OnModuleInit {
   private bot: TelegramBot;
-  private readonly teacheId: number = Number(process.env.TEACHER_ID as string);
+  private userCarts: Map<number, { title: string; price: number }[]> = new Map();
 
-  private sessions = new Map<number, UserSession>();
+  constructor(@InjectModel(Product.name) private productModel: Model<ProductDocument>) {
 
-  private mathQuestions = {
-    1: [
-      // Oson
-      { q: "7 * 8 = ?", a: "56" },
-      { q: "81 / 9 = ?", a: "9" },
-      { q: "12 + 15 = ?", a: "27" },
-      { q: "45 - 18 = ?", a: "27" },
-      { q: "100 - 37 = ?", a: "63" },
-      { q: "15 * 3 = ?", a: "45" },
-      { q: "64 / 8 = ?", a: "8" },
-      { q: "12 + 88 = ?", a: "100" },
-      { q: "55 - 22 = ?", a: "33" },
-      { q: "9 * 6 = ?", a: "54" },
-    ],
-    2: [
-      // Oson
-      { q: "25 + 25 = ?", a: "50" },
-      { q: "100 / 4 = ?", a: "25" },
-      { q: "12 * 4 = ?", a: "48" },
-      { q: "90 - 45 = ?", a: "45" },
-      { q: "7 * 7 = ?", a: "49" },
-      { q: "36 / 6 = ?", a: "6" },
-      { q: "14 + 16 = ?", a: "30" },
-      { q: "200 - 150 = ?", a: "50" },
-      { q: "8 * 4 = ?", a: "32" },
-      { q: "11 * 11 = ?", a: "121" },
-    ],
-    3: [
-      // O'rta
-      { q: "15 + 15 + 15 = ?", a: "45" },
-      { q: "120 - 45 = ?", a: "75" },
-      { q: "13 * 3 = ?", a: "39" },
-      { q: "48 / 4 = ?", a: "12" },
-      { q: "25 * 4 = ?", a: "100" },
-      { q: "150 / 5 = ?", a: "30" },
-      { q: "17 + 14 = ?", a: "31" },
-      { q: "99 / 9 = ?", a: "11" },
-      { q: "6 * 15 = ?", a: "90" },
-      { q: "200 / 8 = ?", a: "25" },
-    ],
-    4: [
-      // O'rta
-      { q: "20 + 5 * 2 = ?", a: "30" },
-      { q: "40 - 10 / 2 = ?", a: "35" },
-      { q: "6 * 6 + 4 = ?", a: "40" },
-      { q: "50 / 5 + 10 = ?", a: "20" },
-      { q: "100 - 25 * 2 = ?", a: "50" },
-      { q: "12 * 2 + 6 = ?", a: "30" },
-      { q: "80 / 4 - 5 = ?", a: "15" },
-      { q: "7 * 3 + 9 = ?", a: "30" },
-      { q: "15 * 2 - 10 = ?", a: "20" },
-      { q: "60 / 3 + 40 = ?", a: "60" },
-    ],
-    5: [
-      // O'rta
-      { q: "(10 + 5) * 2 = ?", a: "30" },
-      { q: "100 / (10 + 10) = ?", a: "5" },
-      { q: "3 * (12 - 4) = ?", a: "24" },
-      { q: "(20 + 30) / 2 = ?", a: "25" },
-      { q: "50 - (5 * 5) = ?", a: "25" },
-      { q: "4 * (15 - 5) = ?", a: "40" },
-      { q: "(80 - 20) / 6 = ?", a: "10" },
-      { q: "2 * (25 + 25) = ?", a: "100" },
-      { q: "90 / (3 * 3) = ?", a: "10" },
-      { q: "(14 + 16) * 3 = ?", a: "90" },
-    ],
-    6: [
-      // Qiyin
-      { q: "125 + 125 = ?", a: "250" },
-      { q: "500 - 150 = ?", a: "350" },
-      { q: "12 * 12 = ?", a: "144" },
-      { q: "625 / 5 = ?", a: "125" },
-      { q: "150 * 2 - 50 = ?", a: "250" },
-      { q: "300 / 12 = ?", a: "25" },
-      { q: "18 * 5 = ?", a: "90" },
-      { q: "450 / 9 = ?", a: "50" },
-      { q: "11 * 12 = ?", a: "132" },
-      { q: "1000 / 25 = ?", a: "40" },
-    ],
-    7: [
-      // Qiyin
-      { q: "2^2 + 3^2 = ?", a: "13" },
-      { q: "5^2 - 10 = ?", a: "15" },
-      { q: "4^2 * 2 = ?", a: "32" },
-      { q: "10^2 / 4 = ?", a: "25" },
-      { q: "6^2 + 4 = ?", a: "40" },
-      { q: "3^3 = ?", a: "27" },
-      { q: "8^2 - 14 = ?", a: "50" },
-      { q: "1^2 + 2^2 + 3^2 = ?", a: "14" },
-      { q: "7^2 + 1 = ?", a: "50" },
-      { q: "9^2 - 1 = ?", a: "80" },
-    ],
-    8: [
-      // Murakkab
-      { q: "2 * (15 + 5^2) = ?", a: "80" },
-      { q: "(100 - 40) / 12 = ?", a: "5" },
-      { q: "4^2 + 5 * 6 = ?", a: "46" },
-      { q: "120 / (2 * 3) + 10 = ?", a: "30" },
-      { q: "3 * 3 * 3 - 7 = ?", a: "20" },
-      { q: "50 + 50 / 2 - 10 = ?", a: "65" },
-      { q: "144 / 12 + 8 = ?", a: "20" },
-      { q: "(20 - 5) * (10 / 2) = ?", a: "75" },
-      { q: "10^2 - 9^2 = ?", a: "19" },
-      { q: "2^5 = ?", a: "32" },
-    ],
-    9: [
-      // Murakkab
-      { q: "25 * 5 - 25 = ?", a: "100" },
-      { q: "900 / 30 = ?", a: "30" },
-      { q: "15 * 4 + 15 * 2 = ?", a: "90" },
-      { q: "200 / 4 - 25 = ?", a: "25" },
-      { q: "13 * 4 = ?", a: "52" },
-      { q: "16 * 5 = ?", a: "80" },
-      { q: "75 * 2 + 50 = ?", a: "200" },
-      { q: "180 / 6 * 2 = ?", a: "60" },
-      { q: "22 * 3 = ?", a: "66" },
-      { q: "400 / 8 + 50 = ?", a: "100" },
-    ],
-    10: [
-      // Ekspert
-      { q: "((10 + 5) * 2) + 20 = ?", a: "50" },
-      { q: "12^2 - 44 = ?", a: "100" },
-      { q: "3^4 = ?", a: "81" },
-      { q: "(50 * 2) / (10 / 2) = ?", a: "20" },
-      { q: "2 * (3^2 + 1) = ?", a: "20" },
-      { q: "150 / (15 + 10) = ?", a: "6" },
-      { q: "7 * 8 + 4^2 = ?", a: "72" },
-      { q: "10^3 / 100 = ?", a: "10" },
-      { q: "(100 - 1) / 9 = ?", a: "11" },
-      { q: "2^6 = ?", a: "64" },
-    ],
-  };
-
-  constructor(@InjectModel(Bot.name) private botModel: Model<BotDocument>) {
     this.bot = new TelegramBot(process.env.BOT_TOKEN as string, { polling: true });
-
-    this.bot.setMyCommands([
-      { command: "/start", description: "Botdan ro'yxatdan o'tish" },
-      { command: "/commands", description: "Tugmalarni ko'rish" },
-    ]);
-
-    this.initHandlers();
   }
 
-  // ---TAYMER---
-  private async startVisualTimer(chatId: number, timeLeft: number) {
-    const session = this.sessions.get(chatId);
-    if (!session || !session.messageId) return;
-
-    if (timeLeft > 0) {
-      session.timer = setTimeout(async () => {
-        const nextTime = timeLeft - 1;
-        try {
-          await this.bot.editMessageReplyMarkup(
-            {
-              inline_keyboard: [[{ text: `⏰ Qolgan vaqt: ${nextTime}s`, callback_data: "none" }]],
-            },
-            { chat_id: chatId, message_id: session.messageId },
-          );
-
-          this.startVisualTimer(chatId, nextTime);
-        } catch (e) {
-          if (session.timer) clearTimeout(session.timer);
-        }
-      }, 1000);
-    } else {
-      await this.bot.sendMessage(chatId, "⏰ **Vaqt tugadi!**");
-      this.handleTestLogic(chatId, "");
-    }
+  async onModuleInit() {
+    await this.seedDatabase();
+    this.initializeBotListeners();
   }
 
-  private async handleTestLogic(chatId: number, userMessage: string) {
-    const session = this.sessions.get(chatId);
-    if (!session) return;
+  private initializeBotListeners() {
 
-    if (session.timer) clearTimeout(session.timer);
+    this.bot.onText(/\/start/, async (msg) => {
+      const chatId = msg.chat.id;
+      await this.productModel.findOneAndUpdate(
+        { chatId },
+        { lastState: "waiting_contact", first_name: msg.from?.first_name },
+        { upsert: true }
+      );
 
-    const variantQuestions = this.mathQuestions[session.variant];
-    const currentQ = variantQuestions[session.questionIndex];
-
-    if (userMessage.trim() === currentQ.a) {
-      session.correctAnswers++;
-    }
-
-    session.questionIndex++;
-
-    if (session.questionIndex < variantQuestions.length) {
-      const nextIdx = session.questionIndex;
-      const nextQ = variantQuestions[nextIdx].q;
-
-      const sentMsg = await this.bot.sendMessage(chatId, `${nextIdx + 1}-savol: ${nextQ}`, {
+      this.bot.sendMessage(chatId, "Xush kelibsiz! Botdan foydalanish uchun telefon raqamingizni yuboring:", {
         reply_markup: {
-          inline_keyboard: [[{ text: `⏰ Qolgan vaqt: 20s`, callback_data: "none" }]],
-        },
+          keyboard: [[{ text: "📞 Kontaktni yuborish", request_contact: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        }
+      });
+    });
+
+    // 2. Kontakt 
+    this.bot.on('contact', async (msg) => {
+      const chatId = msg.chat.id;
+      await this.productModel.findOneAndUpdate({ chatId }, { 
+        phoneNumber: msg.contact?.phone_number,
+        lastState: 'waiting_location' 
       });
 
-      session.messageId = sentMsg.message_id;
-      this.startVisualTimer(chatId, 20);
-    } else {
-      const total = variantQuestions.length;
-      const correct = session.correctAnswers;
-      const accuracy = (correct / total) * 100;
+      this.bot.sendMessage(chatId, "Endi lokatsiyangizni yuboring:", {
+        reply_markup: {
+          keyboard: [[{ text: "📍 Lokatsiyani yuborish", request_location: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    });
 
-      const result = `🏁 **Test yakunlandi!**\n\n✅ To'g'ri: ${correct}/${total}\n🎯 Aniqlik: ${accuracy}%\n\nQaytadan boshlash uchun /commands bosing.`;
-      this.sessions.delete(chatId);
-      await this.bot.sendMessage(chatId, result, { parse_mode: "Markdown" });
+    // 3. Lokatsiya
+    this.bot.on('location', async (msg) => {
+      const chatId = msg.chat.id;
+      await this.productModel.findOneAndUpdate({ chatId }, { 
+        location: { lat: msg.location?.latitude, lng: msg.location?.longitude },
+        lastState: 'main_menu' 
+      });
+
+      this.showMainMenu(chatId);
+    });
+
+    // 4. Xabarlarni qayta ishlash (Kategoriyalar va Savatcha)
+    this.bot.on('message', async (msg) => {
+      if (!msg.text || msg.text.startsWith('/')) return;
+      
+      const chatId = msg.chat.id;
+      const text = msg.text;
+
+      const categoryMap: Record<string, string> = {
+        '🥤 Ichimliklar': 'drinks',
+        '🍔 Yeguliklar': 'foods',
+        '🍰 Shirinliklar': 'sweets'
+      };
+
+      if (categoryMap[text]) {
+        await this.sendProductsByCategory(chatId, categoryMap[text]);
+      } else if (text === '🛒 Savatcha') {
+        this.showCart(chatId);
+      }
+    });
+
+    // 5. Sotib olish va Tasdiqlash tugmalari
+    this.bot.on('callback_query', async (query) => {
+      const chatId = query.message?.chat.id;
+      const data = query.data;
+      if (!chatId || !data) return;
+
+      if (data.startsWith('buy_')) {
+        const prodId = data.split('_')[1];
+        const product = await this.productModel.findById(prodId);
+        if (product) {
+          const cart = this.userCarts.get(chatId) || [];
+          cart.push({ title: product.title, price: product.price });
+          this.userCarts.set(chatId, cart);
+          this.bot.answerCallbackQuery(query.id, { text: "Savatchaga qo'shildi! ✅" });
+        }
+      }
+
+      if (data === 'confirm_order') {
+        await this.bot.sendMessage(chatId, "Buyurtmangiz qabul qilindi! Operatorlarimiz bog'lanishadi. ✅");
+        this.userCarts.delete(chatId);
+        this.showMainMenu(chatId);
+      }
+    });
+  }
+
+  private async sendProductsByCategory(chatId: number, category: string) {
+    const products = await this.productModel.find({ category });
+    
+    if (products.length === 0) {
+      return this.bot.sendMessage(chatId, "Hozircha bu bo'limda mahsulot yo'q.");
+    }
+
+    for (const prod of products) {
+      const caption = `<b>${prod.title}</b>\n\n📜 ${prod.description}\n💰 Narxi: ${prod.price?.toLocaleString()} so'm`;
+      
+      await this.bot.sendPhoto(chatId, prod.imageUrl, {
+        caption: caption,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: "Sotib olish 🛒", callback_data: `buy_${prod._id}` }]]
+        }
+      }).catch(() => {
+        this.bot.sendMessage(chatId, caption, { 
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [[{ text: "Sotib olish 🛒", callback_data: `buy_${prod._id}` }]]
+            }
+        });
+      });
     }
   }
 
-  private initHandlers() {
-    this.bot.onText(/\/start/, async (msg) => {
-      const chatId = msg.from?.id as number;
-      if (chatId === this.teacheId) await this.bot.sendMessage(chatId, "Siz ustoz sifatida belgilangansiz.");
-
-      const foundUser = await this.botModel.findOne({ chatId });
-      if (!foundUser) {
-        await this.botModel.create({ name: msg.from?.first_name || "unknown", chatId });
-        await this.bot.sendMessage(chatId, "Botdan foydalanishingiz mumkin.");
-        return this.bot.sendMessage(this.teacheId, `Yangi foydalanuvchi: ${msg.from?.first_name}`);
-      }
-      await this.bot.sendMessage(chatId, "Siz botdan oldin ro'yxatdan o'tgansiz.");
+  private showMainMenu(chatId: number) {
+    this.bot.sendMessage(chatId, "Menyudan tanlang:", {
+      reply_markup: {
+        keyboard: [
+          [{ text: "🥤 Ichimliklar" }, { text: "🍔 Yeguliklar" }],
+          [{ text: "🍰 Shirinliklar" }],
+          [{ text: "🛒 Savatcha" }]
+        ],
+        resize_keyboard: true,
+      },
     });
+  }
 
-    this.bot.on("message", async (msg) => {
-      const chatId = msg.from?.id as number;
-      if (!chatId || !msg.text) return;
+  private showCart(chatId: number) {
+    const cart = this.userCarts.get(chatId) || [];
+    if (cart.length === 0) {
+      return this.bot.sendMessage(chatId, "Sizning savatchangiz bo'sh.");
+    }
 
-      const session = this.sessions.get(chatId);
+    let total = 0;
+    let response = "🛒 <b>Sizning savatchangiz:</b>\n\n";
+    cart.forEach((item, i) => {
+      response += `${i + 1}. ${item.title} - ${item.price.toLocaleString()} so'm\n`;
+      total += item.price;
+    });
+    response += `\n💰 <b>Jami: ${total.toLocaleString()} so'm</b>`;
 
-      // 1. BUYRUQLAR
-      if (msg.text === "/commands") {
-        const buttons: any[][] = [
-          [
-            { text: "Kontakt ulashish", request_contact: true },
-            { text: "Lokatsiya ulashish", request_location: true },
-          ],
-          [{ text: "Matematik savollar" }],
-        ];
-        if (chatId === this.teacheId) buttons.push([{ text: "Jami foydalanuvchilarni ko'rish" }]);
-
-        return this.bot.sendMessage(chatId, "Amalni tanlang:", {
-          reply_markup: { keyboard: buttons, resize_keyboard: true, one_time_keyboard: true },
-        });
-      }
-
-      if (msg.text === "Matematik savollar") {
-        return this.bot.sendMessage(chatId, "Variantni tanlang:", {
-          reply_markup: {
-            keyboard: [
-              [{ text: "1-Variant" }, { text: "2-Variant" }],
-              [{ text: "3-Variant" }, { text: "4-Variant" }],
-              [{ text: "5-Variant" }, { text: "6-Variant" }],
-              [{ text: "7-Variant" }, { text: "8-Variant" }],
-              [{ text: "9-Variant" }, { text: "10-Variant" }],
-            ],
-            resize_keyboard: true,
-          },
-        });
-      }
-
-      if (msg.text.includes("-Variant")) {
-        const varNum = parseInt(msg.text.split("-")[0]);
-        if (isNaN(varNum) || !this.mathQuestions[varNum]) return;
-
-        const firstQ = this.mathQuestions[varNum][0].q;
-
-        const sentMsg = await this.bot.sendMessage(chatId, `🚀 Test boshlandi!\n\n1-savol: ${firstQ}`, {
-          reply_markup: {
-            inline_keyboard: [[{ text: `⏰ Qolgan vaqt: 20s`, callback_data: "none" }]],
-          },
-        });
-
-        this.sessions.set(chatId, {
-          variant: varNum,
-          questionIndex: 0,
-          correctAnswers: 0,
-          messageId: sentMsg.message_id,
-        });
-
-        return this.startVisualTimer(chatId, 20);
-      }
-
-      // 2. TEST JAVOBI
-      if (session && !msg.text.startsWith("/")) {
-        return this.handleTestLogic(chatId, msg.text);
-      }
-
-      // 3. Statistika, kontakt, lokatsiya va chat
-      if (msg.text === "Jami foydalanuvchilarni ko'rish" && chatId === this.teacheId) {
-        const users = await this.botModel.find({});
-        let report = `📊 Jami a'zolar: ${users.length}\n\n`;
-        users.forEach((u) => (report += `\`${u.chatId}\` - ${u.name}\n`));
-        return this.bot.sendMessage(chatId, report || "Bo'sh", { parse_mode: "Markdown" });
-      }
-
-      if (msg.contact) {
-        await this.bot.sendContact(this.teacheId, msg.contact.phone_number, msg.contact.first_name);
-        return this.bot.sendMessage(this.teacheId, `${chatId}-${msg.from?.first_name} kontakt yubordi.`);
-      }
-
-      if (msg.location) {
-        await this.bot.sendLocation(this.teacheId, msg.location.latitude, msg.location.longitude);
-        return this.bot.sendMessage(this.teacheId, `${chatId}-${msg.from?.first_name} lokatsiya yubordi.`);
-      }
-
-      if (msg.text && !msg.text.startsWith("/")) {
-        if (chatId !== this.teacheId) {
-          this.bot.sendMessage(this.teacheId, `${chatId}-${msg.from?.first_name}:\n${msg.text}`);
-        }
-        if (chatId === this.teacheId && msg.reply_to_message) {
-          const studentId = parseInt(msg.reply_to_message.text?.split("-")[0] as string);
-          if (!isNaN(studentId)) this.bot.sendMessage(studentId, msg.text);
-        }
+    this.bot.sendMessage(chatId, response, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: "Buyurtmani tasdiqlash ✅", callback_data: 'confirm_order' }]]
       }
     });
+  }
+
+  private async seedDatabase() {
+
+    // await this.productModel.deleteMany({});
+    const count = await this.productModel.countDocuments({ category: { $exists: true } });
+    if (count > 0) return;
+
+    const data = [
+    //  ICHIMLIKLAR
+    { title: "Coca-Cola 1.5L", price: 14000, category: "drinks", description: "Muzdek ichimlik", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSywE3TX4dIhIDJkR_ZKoROup2GwX1O0HzsrA&s" },
+    { title: "Pepsi 1.5L", price: 13500, category: "drinks", description: "Chanqoqbosti Pepsi", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ90pBhti56F0VEPpu1A3ItikhKxbPFVUwxqA&s" },
+    { title: "Fanta 1.5L", price: 14000, category: "drinks", description: "Apelsinli shirin suv", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR2CGmQZrs94JTYobQToK08VDbjxGhbspApLQ&s" },
+    { title: "Nestle Suv 0.5L", price: 3000, category: "drinks", description: "Gazsiz toza suv", imageUrl: "https://shop.tegen.uz/wp-content/uploads/2021/05/imgonline-com-ua-Resize-a1Qdrw1NxWN9Cp.jpg" },
+    { title: "Fuse Tea", price: 9000, category: "drinks", description: "Muzli choy", imageUrl: "https://ir.ozone.ru/s3/multimedia-1-l/7247743005.jpg" },
+    { title: "Sharbat (Sok)", price: 12000, category: "drinks", description: "Tabiiy meva sharbati", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT4sPnqnfzjBGaPDvkZqTYSEvNqjrMQixrfvw&s" },
+
+    //  YEGULIKLAR
+    { title: "Gamburger", price: 28000, category: "foods", description: "Issiq burger", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQuDfL3jtIrlPQzCmvRwmZeN93TWtq8zl3Ytg&s" },
+    { title: "Chizburger", price: 32000, category: "foods", description: "Pishloqli burger", imageUrl: "https://yukber.uz/image/cache/catalog/product_1314_280821341-700x700.png" },
+    { title: "Lavash Standart", price: 30000, category: "foods", description: "Go'shtli lavash", imageUrl: "https://imageproxy.wolt.com/assets/67335f1db248216911b35a6f" },
+    { title: "Donar", price: 25000, category: "foods", description: "Turkcha donar kaba", imageUrl: "https://avatars.mds.yandex.net/get-eda/3534679/a3a19c9f7ea94d1b8bcf5eaa82a3a0fa/M_height" },
+    { title: "Hot-dog", price: 15000, category: "foods", description: "Sosiskali bulochka", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQHeLkcqgOn3kYqsOfP0m7pfCNh2OOQXuL4hg&s" },
+    { title: "Fri Kartoshkasi", price: 12000, category: "foods", description: "Qisir-qisir fri", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQzkAEOloDj35YrrvZT0DQ39mVwEtqWBCRtiQ&s" },
+
+    // SHIRINLIKLAR 
+    { title: "Medovik", price: 18000, category: "sweets", description: "Asalli tort", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRh0S-ChWgiNZb8z2pslLW6RlP3f5zZlTYSXQ&s" },
+    { title: "Cheesecake", price: 22000, category: "sweets", description: "Pishloqli desert", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRpS6yaJcvttjlTPYohqV_7Kgc-WjBUwY8iYw&s" },
+    { title: "Napoleon", price: 17000, category: "sweets", description: "Qatlamli shirinlik", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTdueZ0aqD4qWRoGGU9sb2z-c8GZIBFoT7oxg&s" },
+    { title: "Donat", price: 10000, category: "sweets", description: "Shokoladli ponchik", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ3HM_FC6rXHZX1S_Xa__2CCR88I_2CZXC4-g&s" },
+    { title: "Muzqaymoq", price: 15000, category: "sweets", description: "3 xil sharikli", imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Ice_cream_with_whipped_cream%2C_chocolate_syrup%2C_and_a_wafer_%28cropped%29.jpg/250px-Ice_cream_with_whipped_cream%2C_chocolate_syrup%2C_and_a_wafer_%28cropped%29.jpg" },
+    { title: "Pahlava", price: 20000, category: "sweets", description: "Sharqona shirinlik", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRpym9zZpbckEpjgVMm91qiv6CbYUfmqpoqKA&s" }
+  ];
+
+    await this.productModel.insertMany(data);
+    console.log("Mahsulotlar yuklandi! ✅");
   }
 }
